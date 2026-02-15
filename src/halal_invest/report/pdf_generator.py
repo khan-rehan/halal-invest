@@ -342,7 +342,8 @@ class HalalReportPDF(FPDF):
 
             summary = f"{i+1}. {ticker} ({company}) -- Score {score}, {tag}, {signal} signal, {pe_note}, {roe_note}"
             self.set_font("Helvetica", "", 7)
-            self.multi_cell(0, 3.5, self._sanitize(summary))
+            self.set_x(self.l_margin)
+            self.multi_cell(190, 3.5, self._sanitize(summary))
 
     # ------------------------------------------------------------------
     # All Passing Stocks: Compact Table grouped by Sector
