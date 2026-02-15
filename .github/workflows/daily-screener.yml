@@ -1,0 +1,41 @@
+name: Daily Halal S&P 500 Screener
+
+on:
+  schedule:
+    # 9:00 AM EST = 14:00 UTC (during EST, Nov-Mar)
+    # Adjust to '0 13 * * 1-5' during EDT (Mar-Nov) if needed
+    - cron: '0 14 * * 1-5'
+  workflow_dispatch: {}  # Allow manual trigger for testing
+
+jobs:
+  screen-and-email:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install .
+
+      - name: Run daily screener pipeline
+        run: python -m halal_invest.pipeline.daily_screener
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+
+      - name: Upload PDF as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: halal-report-${{ github.run_number }}
+          path: ~/halal-invest-reports/*.pdf
+          retention-days: 30
