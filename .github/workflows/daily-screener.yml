@@ -28,8 +28,8 @@ jobs:
       - name: Run daily screener pipeline
         run: python -m halal_invest.pipeline.daily_screener
         env:
-          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
-          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
 
       - name: Upload PDF as artifact
