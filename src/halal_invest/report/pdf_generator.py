@@ -4,14 +4,26 @@ from datetime import datetime
 from pathlib import Path
 from fpdf import FPDF
 
+from halal_invest.core.scoring import score_stock, get_valuation_tag, allocate_investment
+
 
 class HalalReportPDF(FPDF):
     """Custom PDF document for halal stock screening reports."""
 
+    # Color constants
+    GREEN = (0, 128, 0)
+    DARK_GREEN = (0, 80, 0)
+    RED = (180, 30, 30)
+    ORANGE = (200, 120, 0)
+    WHITE = (255, 255, 255)
+    BLACK = (0, 0, 0)
+    GRAY = (128, 128, 128)
+    LIGHT_GRAY = (240, 240, 240)
+    HEADER_BG = (0, 128, 0)
+
     def __init__(self):
         super().__init__()
         self.set_auto_page_break(auto=True, margin=15)
-        self.add_page()
         self.set_font("Helvetica")
 
     # ------------------------------------------------------------------
@@ -21,11 +33,17 @@ class HalalReportPDF(FPDF):
     def header(self):
         """Draw page header with report title and date."""
         self.set_font("Helvetica", "B", 14)
-        self.cell(0, 8, "Halal S&P 500 Daily Screener Report", new_x="LMARGIN", new_y="NEXT", align="C")
+        self.cell(
+            0, 8, "Halal S&P 500 Daily Report",
+            new_x="LMARGIN", new_y="NEXT", align="C",
+        )
         self.set_font("Helvetica", "", 10)
-        self.cell(0, 6, datetime.now().strftime("%A, %B %d, %Y"), new_x="LMARGIN", new_y="NEXT", align="C")
+        self.cell(
+            0, 6, datetime.now().strftime("%A, %B %d, %Y"),
+            new_x="LMARGIN", new_y="NEXT", align="C",
+        )
         # Separator line
-        self.set_draw_color(0, 128, 0)
+        self.set_draw_color(*self.GREEN)
         self.set_line_width(0.5)
         self.line(10, self.get_y() + 2, 200, self.get_y() + 2)
         self.ln(6)
@@ -34,13 +52,12 @@ class HalalReportPDF(FPDF):
         """Draw page footer with page numbers."""
         self.set_y(-15)
         self.set_font("Helvetica", "", 8)
-        self.set_text_color(128, 128, 128)
+        self.set_text_color(*self.GRAY)
         self.cell(0, 10, f"Page {self.page_no()} of {{nb}}", align="C")
-        # Reset text color for next page content
-        self.set_text_color(0, 0, 0)
+        self.set_text_color(*self.BLACK)
 
     # ------------------------------------------------------------------
-    # Summary
+    # Page 1: Summary
     # ------------------------------------------------------------------
 
     def add_summary_section(
@@ -51,204 +68,453 @@ class HalalReportPDF(FPDF):
         total_error: int,
         sector_breakdown: dict,
     ):
-        """Add the summary section at the top of the report.
-
-        Args:
-            total_screened: Total number of stocks screened.
-            total_passed: Number that passed (PASS + DOUBTFUL).
-            total_failed: Number that failed.
-            total_error: Number with errors.
-            sector_breakdown: Mapping of sector name to count of passing stocks.
-        """
-        self.set_font("Helvetica", "B", 12)
-        self.cell(0, 8, "Summary", new_x="LMARGIN", new_y="NEXT")
+        """Add summary page with stat grid and sector breakdown."""
+        # 4-box stat grid
+        self.set_font("Helvetica", "B", 11)
+        self.cell(0, 8, "Screening Overview", new_x="LMARGIN", new_y="NEXT")
         self.ln(2)
 
-        self.set_font("Helvetica", "", 10)
-        today = datetime.now().strftime("%Y-%m-%d")
-        lines = [
-            f"Date: {today}",
-            f"Total Screened: {total_screened}",
-            f"Passed (Halal): {total_passed}",
-            f"Failed: {total_failed}",
-            f"Errors: {total_error}",
+        box_w = 45
+        box_h = 18
+        start_x = self.get_x()
+
+        stats = [
+            ("Total Screened", str(total_screened)),
+            ("Halal Passed", str(total_passed)),
+            ("Failed", str(total_failed)),
+            ("Pass Rate", f"{total_passed / total_screened * 100:.0f}%" if total_screened else "0%"),
         ]
-        for line in lines:
-            self.cell(0, 5, line, new_x="LMARGIN", new_y="NEXT")
-        self.ln(4)
+
+        for i, (label, value) in enumerate(stats):
+            x = start_x + i * (box_w + 2)
+            y = self.get_y()
+            # Box border
+            self.set_draw_color(180, 180, 180)
+            self.set_line_width(0.3)
+            self.rect(x, y, box_w, box_h)
+            # Value (large)
+            self.set_xy(x, y + 2)
+            self.set_font("Helvetica", "B", 14)
+            self.set_text_color(*self.DARK_GREEN)
+            self.cell(box_w, 8, value, align="C")
+            # Label (small)
+            self.set_xy(x, y + 10)
+            self.set_font("Helvetica", "", 7)
+            self.set_text_color(*self.GRAY)
+            self.cell(box_w, 5, label, align="C")
+
+        self.set_text_color(*self.BLACK)
+        self.set_y(self.get_y() + box_h + 6)
 
         # Sector breakdown table
         if sector_breakdown:
             self.set_font("Helvetica", "B", 10)
-            self.cell(0, 6, "Sector Breakdown (Passing Stocks)", new_x="LMARGIN", new_y="NEXT")
+            self.cell(
+                0, 6, "Sector Breakdown (Passing Stocks)",
+                new_x="LMARGIN", new_y="NEXT",
+            )
             self.ln(2)
 
-            # Table header
-            self.set_font("Helvetica", "B", 9)
-            self.set_fill_color(0, 128, 0)
-            self.set_text_color(255, 255, 255)
-            self.cell(80, 6, "Sector", border=1, fill=True)
-            self.cell(30, 6, "Count", border=1, align="C", fill=True)
-            self.cell(40, 6, "% of Passed", border=1, align="C", fill=True)
-            self.ln()
-            self.set_text_color(0, 0, 0)
+            self._table_header_row(
+                [("Sector", 80), ("Count", 30), ("% of Passed", 40)],
+            )
 
-            # Sort sectors by count descending
-            sorted_sectors = sorted(sector_breakdown.items(), key=lambda x: x[1], reverse=True)
+            sorted_sectors = sorted(
+                sector_breakdown.items(), key=lambda x: x[1], reverse=True,
+            )
             self.set_font("Helvetica", "", 9)
 
             for idx, (sector, count) in enumerate(sorted_sectors):
                 pct = (count / total_passed * 100) if total_passed > 0 else 0.0
-                if idx % 2 == 0:
-                    self.set_fill_color(240, 240, 240)
-                else:
-                    self.set_fill_color(255, 255, 255)
+                self._set_row_bg(idx)
                 self.cell(80, 5, self._sanitize(sector[:40]), border=1, fill=True)
                 self.cell(30, 5, str(count), border=1, align="C", fill=True)
                 self.cell(40, 5, f"{pct:.1f}%", border=1, align="C", fill=True)
                 self.ln()
 
-        self.ln(6)
+        self.ln(4)
 
     # ------------------------------------------------------------------
-    # Individual Stock Section
+    # Page 2: Glossary / How to Read This Report
     # ------------------------------------------------------------------
 
-    def add_stock_section(self, stock_data: dict):
-        """Add a compact section for a single stock.
+    def add_glossary_page(self):
+        """Add a reference page explaining every metric in simple English."""
+        self.add_page()
+        self.set_font("Helvetica", "B", 13)
+        self.cell(0, 8, "How to Read This Report", new_x="LMARGIN", new_y="NEXT")
+        self.ln(2)
+
+        sections = [
+            ("Halal Screening", [
+                ("Debt Ratio", "Total company debt divided by market value. Must be under 33% to pass."),
+                ("Liquid Assets Ratio", "Cash and short-term investments divided by market value. Must be under 33%."),
+                ("Receivables Ratio", "Money owed to the company divided by market value. Must be under 33%."),
+                ("Impure Income", "Interest-based income as a share of total revenue. Must be under 5%."),
+            ]),
+            ("Valuation Metrics", [
+                ("P/E (Price-to-Earnings)", "How many years of current earnings you're paying for the stock. Lower = cheaper. Under 15 is considered cheap, 15-25 is fair, over 25 is expensive."),
+                ("P/B (Price-to-Book)", "Stock price relative to the company's net asset value. Under 1.5 is cheap, 1.5-3 is fair, over 3 is expensive."),
+                ("PEG Ratio", "P/E adjusted for growth. Under 1 means growth exceeds the price you're paying -- a good sign."),
+            ]),
+            ("Profitability", [
+                ("Net Margin", "How much profit the company keeps from each dollar of revenue. Higher is better."),
+                ("ROE (Return on Equity)", "Profit generated per dollar of shareholder money. Measures how efficiently the company uses your investment."),
+                ("ROA (Return on Assets)", "Profit generated per dollar of total assets. Shows overall efficiency."),
+            ]),
+            ("Growth", [
+                ("Revenue Growth", "How fast the company's sales are increasing year-over-year."),
+                ("Earnings Growth", "How fast profits are increasing. Strong earnings growth drives stock prices up."),
+            ]),
+            ("Financial Health", [
+                ("Debt/Equity", "Total debt relative to shareholder equity. Lower means less financial risk."),
+                ("Current Ratio", "Ability to pay short-term bills. Above 1.5 is healthy, below 1 is risky."),
+                ("Free Cash Flow", "Cash left after expenses and investments. Positive FCF means the company generates real cash."),
+            ]),
+            ("Technical Signals", [
+                ("RSI (Relative Strength Index)", "Measures if a stock is overbought (>70) or oversold (<30). Oversold = potential buy opportunity."),
+                ("MACD", "Tracks momentum by comparing short-term vs long-term price trends. A crossover above the signal line suggests upward momentum."),
+                ("SMA Crossover", "When the 50-day average crosses above the 200-day average (golden cross), it's bullish. Below = bearish."),
+                ("Bollinger Bands", "Price bands around the average. Price near the lower band = potentially oversold and cheap."),
+            ]),
+            ("Composite Score (0-100)", [
+                ("What it means", "A weighted score combining valuation (30%), profitability (25%), growth (20%), financial health (15%), and technical signals (10%). Higher = better overall quality."),
+            ]),
+            ("Valuation Tag", [
+                ("UNDERPRICED", "Stock appears cheap based on P/E, P/B, PEG, and 52-week position."),
+                ("FAIR VALUE", "Stock is reasonably priced relative to its fundamentals."),
+                ("OVERPRICED", "Stock appears expensive -- consider waiting for a dip."),
+            ]),
+        ]
+
+        for section_title, items in sections:
+            if self.get_y() > 255:
+                self.add_page()
+            self.set_font("Helvetica", "B", 9)
+            self.set_text_color(*self.DARK_GREEN)
+            self.cell(0, 5, section_title, new_x="LMARGIN", new_y="NEXT")
+            self.set_text_color(*self.BLACK)
+
+            for term, description in items:
+                if self.get_y() > 265:
+                    self.add_page()
+                self.set_font("Helvetica", "B", 8)
+                self.cell(0, 4, self._sanitize(f"  {term}"), new_x="LMARGIN", new_y="NEXT")
+                self.set_font("Helvetica", "", 7)
+                # Use multi_cell for wrapping long descriptions
+                self.set_x(self.l_margin + 4)
+                self.multi_cell(180, 3.5, self._sanitize(description))
+
+            self.ln(1)
+
+    # ------------------------------------------------------------------
+    # Pages 3-4: Top 10 + Investment Plan
+    # ------------------------------------------------------------------
+
+    def add_top10_section(self, top10: list[dict], allocations: list[dict]):
+        """Add Top 10 stocks and investment allocation plan.
 
         Args:
-            stock_data: Dictionary with keys:
-                - ticker (str)
-                - company (str)
-                - sector (str)
-                - industry (str)
-                - halal_screens (dict): screening results
-                - fundamentals (dict): fundamental metrics
-                - signals (dict): technical signal results
+            top10: List of dicts with keys: rank, ticker, company, sector,
+                score, price, valuation_tag, pe_ratio, roe, revenue_growth,
+                overall_signal.
+            allocations: Output from ``allocate_investment()``.
         """
-        ticker = stock_data.get("ticker", "N/A")
-        company = stock_data.get("company", "N/A")
-        sector = stock_data.get("sector", "N/A")
-        industry = stock_data.get("industry", "N/A")
-        halal_screens = stock_data.get("halal_screens", {})
-        fundamentals = stock_data.get("fundamentals", {})
-        signals = stock_data.get("signals", {})
+        self.add_page()
+        self.set_font("Helvetica", "B", 13)
+        self.cell(
+            0, 8, "$1,000 Investment Plan + Top 10 Best Stocks",
+            new_x="LMARGIN", new_y="NEXT",
+        )
+        self.ln(2)
 
-        # Check if we need a new page (leave at least 60mm for a stock block)
-        if self.get_y() > 230:
-            self.add_page()
+        # --- Investment Allocation Table ---
+        if allocations:
+            self.set_font("Helvetica", "B", 10)
+            self.cell(
+                0, 6,
+                "If you invest $1,000 today, here's how to distribute it:",
+                new_x="LMARGIN", new_y="NEXT",
+            )
+            self.ln(2)
 
-        # Separator line
-        self.set_draw_color(200, 200, 200)
-        self.set_line_width(0.3)
-        self.line(10, self.get_y(), 200, self.get_y())
+            col_widths = [15, 45, 25, 28, 30, 27]  # total = 170
+            headers = ["#", "Company", "Price", "Valuation", "Allocation", "Shares"]
+            self._table_header_row(list(zip(headers, col_widths)))
+
+            self.set_font("Helvetica", "", 8)
+            total_alloc = 0
+            for i, a in enumerate(allocations):
+                self._set_row_bg(i)
+                self.cell(col_widths[0], 5, str(i + 1), border=1, align="C", fill=True)
+                label = self._sanitize(f"{a['ticker']} - {a['company']}"[:28])
+                self.cell(col_widths[1], 5, label, border=1, fill=True)
+                self.cell(col_widths[2], 5, f"${a['price']:.2f}", border=1, align="R", fill=True)
+
+                # Valuation tag - find from top10
+                tag = ""
+                for t in top10:
+                    if t["ticker"] == a["ticker"]:
+                        tag = t.get("valuation_tag", "")
+                        break
+                self._valuation_cell(tag, col_widths[3])
+
+                self.cell(col_widths[4], 5, f"${a['allocation_dollars']:.0f}", border=1, align="R", fill=True)
+                self.cell(col_widths[5], 5, f"{a['approx_shares']:.2f}", border=1, align="R", fill=True)
+                self.ln()
+                total_alloc += a["allocation_dollars"]
+
+            # Total row
+            self.set_font("Helvetica", "B", 8)
+            self.set_fill_color(*self.LIGHT_GRAY)
+            self.cell(col_widths[0] + col_widths[1] + col_widths[2] + col_widths[3], 5, "TOTAL", border=1, align="R", fill=True)
+            self.cell(col_widths[4], 5, f"${total_alloc:.0f}", border=1, align="R", fill=True)
+            self.cell(col_widths[5], 5, "", border=1, fill=True)
+            self.ln()
+
+        self.ln(4)
+
+        # --- Top 10 Ranked Table ---
+        self.set_font("Helvetica", "B", 10)
+        self.cell(0, 6, "Top 10 Halal Stocks by Composite Score", new_x="LMARGIN", new_y="NEXT")
+        self.ln(2)
+
+        col_widths = [8, 12, 36, 25, 12, 18, 22, 12, 12, 14, 14]  # 185 total
+        headers = ["#", "Ticker", "Company", "Sector", "Score", "Price", "Valuation", "P/E", "ROE", "Growth", "Signal"]
+        self._table_header_row(list(zip(headers, col_widths)), font_size=7)
+
+        self.set_font("Helvetica", "", 7)
+        for i, stock in enumerate(top10):
+            if self.get_y() > 265:
+                self.add_page()
+            self._set_row_bg(i)
+            self.cell(col_widths[0], 5, str(i + 1), border=1, align="C", fill=True)
+            self.cell(col_widths[1], 5, self._sanitize(stock.get("ticker", "")), border=1, fill=True)
+            self.cell(col_widths[2], 5, self._sanitize(stock.get("company", "")[:22]), border=1, fill=True)
+            self.cell(col_widths[3], 5, self._sanitize(stock.get("sector", "")[:16]), border=1, fill=True)
+
+            # Score with color
+            score = stock.get("score", 0)
+            self._score_cell(score, col_widths[4])
+
+            price = stock.get("price")
+            price_str = f"${price:.2f}" if price else "N/A"
+            self.cell(col_widths[5], 5, price_str, border=1, align="R", fill=True)
+
+            self._valuation_cell(stock.get("valuation_tag", ""), col_widths[6])
+
+            pe = stock.get("pe_ratio")
+            self.cell(col_widths[7], 5, f"{pe:.1f}" if pe else "N/A", border=1, align="R", fill=True)
+
+            roe = stock.get("roe")
+            roe_str = self._format_value(roe, "pct") if roe is not None else "N/A"
+            self.cell(col_widths[8], 5, roe_str, border=1, align="R", fill=True)
+
+            growth = stock.get("revenue_growth")
+            growth_str = self._format_value(growth, "pct") if growth is not None else "N/A"
+            self.cell(col_widths[9], 5, growth_str, border=1, align="R", fill=True)
+
+            signal = stock.get("overall_signal", "N/A")
+            self._signal_cell(signal, col_widths[10])
+
+            self.ln()
+
         self.ln(3)
 
-        # Stock header
-        self.set_font("Helvetica", "B", 11)
-        self.set_text_color(0, 80, 0)
-        self.cell(0, 6, self._sanitize(f"{ticker} - {company}"), new_x="LMARGIN", new_y="NEXT")
-        self.set_text_color(0, 0, 0)
-        self.set_font("Helvetica", "I", 9)
-        self.cell(0, 4, self._sanitize(f"{sector} | {industry}"), new_x="LMARGIN", new_y="NEXT")
+        # Brief summary for each top 10 stock
+        self.set_font("Helvetica", "B", 9)
+        self.cell(0, 5, "Quick Take on Each Pick:", new_x="LMARGIN", new_y="NEXT")
+        self.ln(1)
+
+        for i, stock in enumerate(top10):
+            if self.get_y() > 268:
+                self.add_page()
+            ticker = stock.get("ticker", "")
+            company = stock.get("company", "")
+            score = stock.get("score", 0)
+            tag = stock.get("valuation_tag", "FAIR VALUE")
+            signal = stock.get("overall_signal", "HOLD")
+            pe = stock.get("pe_ratio")
+            roe = stock.get("roe")
+
+            pe_note = f"P/E {pe:.1f}" if pe else "P/E N/A"
+            roe_note = f"ROE {self._format_value(roe, 'pct')}" if roe is not None else "ROE N/A"
+
+            summary = f"{i+1}. {ticker} ({company}) -- Score {score}, {tag}, {signal} signal, {pe_note}, {roe_note}"
+            self.set_font("Helvetica", "", 7)
+            self.multi_cell(0, 3.5, self._sanitize(summary))
+
+    # ------------------------------------------------------------------
+    # All Passing Stocks: Compact Table grouped by Sector
+    # ------------------------------------------------------------------
+
+    def add_all_stocks_section(self, stocks_by_sector: dict):
+        """Add compact tables of all passing stocks grouped by sector.
+
+        Args:
+            stocks_by_sector: Dict mapping sector name to list of stock dicts.
+                Each stock dict has: ticker, company, score, price,
+                valuation_tag, debt_pct, pe_ratio, roe, revenue_growth,
+                overall_signal.
+        """
+        self.add_page()
+        self.set_font("Helvetica", "B", 13)
+        self.cell(0, 8, "All Halal-Compliant Stocks", new_x="LMARGIN", new_y="NEXT")
         self.ln(2)
 
-        # --- Halal Screening ---
-        self._section_label("Halal Screening")
-        ba = halal_screens.get("business_activity", {})
-        dr = halal_screens.get("debt_ratio", {})
-        la = halal_screens.get("liquid_assets_ratio", {})
-        ii = halal_screens.get("impure_income", {})
+        col_widths = [13, 36, 12, 17, 22, 14, 13, 13, 14, 14]  # 168 total
+        headers = ["Ticker", "Company", "Score", "Price", "Valuation", "Debt%", "P/E", "ROE", "Growth", "Signal"]
 
-        ba_text = "PASS" if ba.get("pass") else "FAIL"
-        dr_val = dr.get("value")
-        dr_text = f"{dr_val:.1%} (< 33%)" if dr_val is not None else "N/A"
-        la_val = la.get("value")
-        la_text = f"{la_val:.1%} (< 33%)" if la_val is not None else "N/A"
-        ii_val = ii.get("value")
-        ii_text = f"{ii_val:.1%} (< 5%)" if ii_val is not None else "N/A"
+        sorted_sectors = sorted(stocks_by_sector.keys())
 
-        self.set_font("Helvetica", "", 8)
-        col_w = 47.5
-        self._mini_cell("Business Activity", ba_text, col_w)
-        self._mini_cell("Debt Ratio", dr_text, col_w)
-        self._mini_cell("Liquid Assets", la_text, col_w)
-        self._mini_cell("Impure Income", ii_text, col_w)
-        self.ln()
+        for sector in sorted_sectors:
+            stocks = stocks_by_sector[sector]
+            if not stocks:
+                continue
 
-        # --- Valuation ---
-        self._section_label("Valuation")
-        self.set_font("Helvetica", "", 8)
-        val_items = [
-            ("P/E", self._format_value(fundamentals.get("pe_ratio"), "ratio")),
-            ("Fwd P/E", self._format_value(fundamentals.get("forward_pe"), "ratio")),
-            ("P/B", self._format_value(fundamentals.get("pb_ratio"), "ratio")),
-            ("PEG", self._format_value(fundamentals.get("peg_ratio"), "ratio")),
-            ("EV/EBITDA", self._format_value(fundamentals.get("ev_ebitda"), "ratio")),
-        ]
-        self._inline_metrics(val_items)
+            # Sector header
+            if self.get_y() > 250:
+                self.add_page()
 
-        # --- Profitability ---
-        self._section_label("Profitability")
-        prof_items = [
-            ("Gross Margin", self._format_value(fundamentals.get("gross_margin"), "pct")),
-            ("Op Margin", self._format_value(fundamentals.get("operating_margin"), "pct")),
-            ("Net Margin", self._format_value(fundamentals.get("net_margin"), "pct")),
-            ("ROE", self._format_value(fundamentals.get("roe"), "pct")),
-            ("ROA", self._format_value(fundamentals.get("roa"), "pct")),
-        ]
-        self._inline_metrics(prof_items)
+            self.set_font("Helvetica", "B", 9)
+            self.set_fill_color(*self.GREEN)
+            self.set_text_color(*self.WHITE)
+            total_w = sum(col_widths)
+            self.cell(total_w, 6, self._sanitize(f"  {sector} ({len(stocks)} stocks)"), border=1, fill=True)
+            self.ln()
+            self.set_text_color(*self.BLACK)
 
-        # --- Growth ---
-        self._section_label("Growth")
-        growth_items = [
-            ("Revenue Growth", self._format_value(fundamentals.get("revenue_growth"), "pct")),
-            ("Earnings Growth", self._format_value(fundamentals.get("earnings_growth"), "pct")),
-        ]
-        self._inline_metrics(growth_items)
+            # Column headers
+            self._table_header_row(
+                list(zip(headers, col_widths)),
+                font_size=7,
+                bg_color=(60, 60, 60),
+            )
 
-        # --- Financial Health ---
-        self._section_label("Financial Health")
-        health_items = [
-            ("Debt/Equity", self._format_value(fundamentals.get("debt_to_equity"), "ratio")),
-            ("Current Ratio", self._format_value(fundamentals.get("current_ratio"), "ratio")),
-            ("Free Cash Flow", self._format_value(fundamentals.get("free_cash_flow"), "currency")),
-        ]
-        self._inline_metrics(health_items)
+            self.set_font("Helvetica", "", 7)
+            for idx, stock in enumerate(stocks):
+                if self.get_y() > 272:
+                    self.add_page()
+                    # Re-print sector continuation header
+                    self.set_font("Helvetica", "B", 8)
+                    self.set_fill_color(*self.GREEN)
+                    self.set_text_color(*self.WHITE)
+                    self.cell(total_w, 5, self._sanitize(f"  {sector} (cont.)"), border=1, fill=True)
+                    self.ln()
+                    self.set_text_color(*self.BLACK)
+                    self._table_header_row(
+                        list(zip(headers, col_widths)),
+                        font_size=7,
+                        bg_color=(60, 60, 60),
+                    )
+                    self.set_font("Helvetica", "", 7)
 
-        # --- Dividends ---
-        self._section_label("Dividends")
-        div_items = [
-            ("Yield", self._format_value(fundamentals.get("dividend_yield"), "pct")),
-            ("Payout Ratio", self._format_value(fundamentals.get("payout_ratio"), "pct")),
-        ]
-        self._inline_metrics(div_items)
+                self._set_row_bg(idx)
 
-        # --- Technical Signals ---
-        self._section_label("Technical Signals")
-        rsi_sig = signals.get("rsi", {}).get("signal", "N/A")
-        rsi_val = signals.get("rsi", {}).get("value")
-        rsi_text = f"{rsi_val} ({rsi_sig})" if rsi_val is not None else rsi_sig
+                self.cell(col_widths[0], 4.5, self._sanitize(stock.get("ticker", "")), border=1, fill=True)
+                self.cell(col_widths[1], 4.5, self._sanitize(stock.get("company", "")[:22]), border=1, fill=True)
 
-        macd_sig = signals.get("macd", {}).get("signal", "N/A")
-        sma_sig = signals.get("sma_crossover", {}).get("signal", "N/A")
-        boll_sig = signals.get("bollinger", {}).get("signal", "N/A")
-        overall_sig = signals.get("overall", {}).get("signal", "N/A")
+                self._score_cell(stock.get("score", 0), col_widths[2], height=4.5)
 
-        sig_items = [
-            ("RSI", rsi_text),
-            ("MACD", macd_sig),
-            ("SMA Cross", sma_sig),
-            ("Bollinger", boll_sig),
-            ("Overall", overall_sig),
-        ]
-        self._inline_metrics(sig_items)
-        self.ln(2)
+                price = stock.get("price")
+                price_str = f"${price:.0f}" if price else "N/A"
+                self.cell(col_widths[3], 4.5, price_str, border=1, align="R", fill=True)
+
+                self._valuation_cell(stock.get("valuation_tag", ""), col_widths[4], height=4.5)
+
+                debt_pct = stock.get("debt_pct")
+                debt_str = f"{debt_pct:.0f}%" if debt_pct is not None else "N/A"
+                self.cell(col_widths[5], 4.5, debt_str, border=1, align="R", fill=True)
+
+                pe = stock.get("pe_ratio")
+                self.cell(col_widths[6], 4.5, f"{pe:.1f}" if pe else "N/A", border=1, align="R", fill=True)
+
+                roe = stock.get("roe")
+                roe_str = self._format_value(roe, "pct") if roe is not None else "N/A"
+                self.cell(col_widths[7], 4.5, roe_str, border=1, align="R", fill=True)
+
+                growth = stock.get("revenue_growth")
+                growth_str = self._format_value(growth, "pct") if growth is not None else "N/A"
+                self.cell(col_widths[8], 4.5, growth_str, border=1, align="R", fill=True)
+
+                self._signal_cell(stock.get("overall_signal", "N/A"), col_widths[9], height=4.5)
+
+                self.ln()
+
+            self.ln(2)
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _table_header_row(self, columns: list[tuple[str, float]], font_size: int = 8, bg_color: tuple = None):
+        """Draw a table header row with green background.
+
+        Args:
+            columns: List of (header_text, width) tuples.
+            font_size: Font size for header text.
+            bg_color: Optional RGB tuple. Defaults to HEADER_BG.
+        """
+        bg = bg_color or self.HEADER_BG
+        self.set_font("Helvetica", "B", font_size)
+        self.set_fill_color(*bg)
+        self.set_text_color(*self.WHITE)
+        for text, width in columns:
+            self.cell(width, 5, text, border=1, align="C", fill=True)
+        self.ln()
+        self.set_text_color(*self.BLACK)
+
+    def _set_row_bg(self, idx: int):
+        """Set alternating row background color."""
+        if idx % 2 == 0:
+            self.set_fill_color(*self.LIGHT_GRAY)
+        else:
+            self.set_fill_color(*self.WHITE)
+
+    def _valuation_cell(self, tag: str, width: float, height: float = 5):
+        """Render a valuation tag cell with color coding."""
+        if tag == "UNDERPRICED":
+            self.set_text_color(*self.GREEN)
+        elif tag == "OVERPRICED":
+            self.set_text_color(*self.RED)
+        elif tag == "FAIR VALUE":
+            self.set_text_color(*self.ORANGE)
+        else:
+            self.set_text_color(*self.BLACK)
+
+        self.set_font("Helvetica", "B", 7)
+        self.cell(width, height, tag, border=1, align="C", fill=True)
+        self.set_text_color(*self.BLACK)
+        self.set_font("Helvetica", "", 7)
+
+    def _score_cell(self, score: float, width: float, height: float = 5):
+        """Render a score cell with color based on value."""
+        if score >= 70:
+            self.set_text_color(*self.GREEN)
+        elif score >= 50:
+            self.set_text_color(*self.ORANGE)
+        else:
+            self.set_text_color(*self.RED)
+
+        self.set_font("Helvetica", "B", 7)
+        self.cell(width, height, f"{score:.0f}", border=1, align="C", fill=True)
+        self.set_text_color(*self.BLACK)
+        self.set_font("Helvetica", "", 7)
+
+    def _signal_cell(self, signal: str, width: float, height: float = 5):
+        """Render a technical signal cell with color."""
+        sig = (signal or "N/A").upper()
+        if sig == "BUY":
+            self.set_text_color(*self.GREEN)
+        elif sig == "SELL":
+            self.set_text_color(*self.RED)
+        else:
+            self.set_text_color(*self.GRAY)
+
+        self.set_font("Helvetica", "B", 7)
+        self.cell(width, height, sig, border=1, align="C", fill=True)
+        self.set_text_color(*self.BLACK)
+        self.set_font("Helvetica", "", 7)
 
     @staticmethod
     def _sanitize(text: str) -> str:
@@ -266,29 +532,7 @@ class HalalReportPDF(FPDF):
         }
         for char, repl in replacements.items():
             text = text.replace(char, repl)
-        # Fallback: replace any remaining non-latin1 chars
         return text.encode("latin-1", errors="replace").decode("latin-1")
-
-    def _section_label(self, text: str):
-        """Print a small bold label for a subsection."""
-        self.set_font("Helvetica", "B", 8)
-        self.set_text_color(80, 80, 80)
-        self.cell(0, 4, text, new_x="LMARGIN", new_y="NEXT")
-        self.set_text_color(0, 0, 0)
-
-    def _mini_cell(self, label: str, value: str, width: float):
-        """Print a label: value pair in a fixed-width cell (no line break)."""
-        self.set_font("Helvetica", "B", 8)
-        self.cell(20, 4, self._sanitize(f"{label}:"), align="R")
-        self.set_font("Helvetica", "", 8)
-        self.cell(width - 20, 4, self._sanitize(f" {value}"))
-
-    def _inline_metrics(self, items: list[tuple[str, str]]):
-        """Print a list of (label, value) pairs on a single line."""
-        self.set_font("Helvetica", "", 8)
-        parts = [f"{label}: {value}" for label, value in items]
-        line = "   |   ".join(parts)
-        self.cell(0, 4, self._sanitize(line), new_x="LMARGIN", new_y="NEXT")
 
     def _format_value(self, value, fmt: str = "general") -> str:
         """Format a value for display in the report.
@@ -309,7 +553,6 @@ class HalalReportPDF(FPDF):
             return str(value)
 
         if fmt == "pct":
-            # Values from yfinance are typically already decimals (e.g., 0.25 = 25%)
             if abs(value) < 1:
                 return f"{value * 100:.1f}%"
             return f"{value:.1f}%"
@@ -357,11 +600,8 @@ def generate_report(
         output_path: Optional output file path. Defaults to
             ``~/halal-invest-reports/halal_report_YYYY-MM-DD.pdf``.
         total_screened: Override for total stocks screened count.
-            If None, uses len(screening_results).
         total_failed: Override for failed count.
-            If None, counts FAIL statuses in screening_results.
         total_error: Override for error count.
-            If None, counts ERROR statuses in screening_results.
 
     Returns:
         The Path to the generated PDF file.
@@ -372,7 +612,7 @@ def generate_report(
         if r.get("screening", {}).get("halal_status") in ("PASS", "DOUBTFUL")
     ]
 
-    # Compute totals — use overrides if provided
+    # Compute totals
     total_passed = len(passing_results)
     if total_screened is None:
         total_screened = len(screening_results)
@@ -387,17 +627,65 @@ def generate_report(
             if r.get("screening", {}).get("halal_status") == "ERROR"
         )
 
-    # Compute sector breakdown from passing stocks
+    # Compute sector breakdown
     sector_breakdown: dict[str, int] = {}
     for r in passing_results:
         sector = r.get("screening", {}).get("sector", "Unknown")
         sector_breakdown[sector] = sector_breakdown.get(sector, 0) + 1
 
+    # Score and tag every passing stock
+    scored_stocks = []
+    for r in passing_results:
+        fundamentals = r.get("fundamentals", {})
+        signals = r.get("signals", {})
+        screening = r.get("screening", {})
+
+        composite_score = score_stock(fundamentals, signals)
+        valuation_tag = get_valuation_tag(fundamentals)
+
+        # Debt percentage from screening data
+        debt_val = screening.get("screens", {}).get("debt_ratio", {}).get("value")
+        debt_pct = debt_val * 100 if debt_val is not None else None
+
+        scored_stocks.append({
+            "ticker": screening.get("ticker", "N/A"),
+            "company": screening.get("company", "N/A"),
+            "sector": screening.get("sector", "N/A"),
+            "industry": screening.get("industry", "N/A"),
+            "score": composite_score,
+            "valuation_tag": valuation_tag,
+            "price": fundamentals.get("current_price"),
+            "pe_ratio": fundamentals.get("pe_ratio"),
+            "roe": fundamentals.get("roe"),
+            "revenue_growth": fundamentals.get("revenue_growth"),
+            "overall_signal": signals.get("overall", {}).get("signal", "N/A"),
+            "debt_pct": debt_pct,
+        })
+
+    # Sort by score descending
+    scored_stocks.sort(key=lambda s: s["score"], reverse=True)
+
+    # Top 10
+    top10 = scored_stocks[:10]
+
+    # Investment allocation
+    allocations = allocate_investment(top10)
+
+    # Group all stocks by sector
+    stocks_by_sector: dict[str, list[dict]] = {}
+    for stock in scored_stocks:
+        sector = stock["sector"]
+        stocks_by_sector.setdefault(sector, []).append(stock)
+    # Sort stocks within each sector by score
+    for sector in stocks_by_sector:
+        stocks_by_sector[sector].sort(key=lambda s: s["score"], reverse=True)
+
     # Build PDF
     pdf = HalalReportPDF()
+    pdf.add_page()
     pdf.alias_nb_pages()
 
-    # Summary
+    # Page 1: Summary
     pdf.add_summary_section(
         total_screened=total_screened,
         total_passed=total_passed,
@@ -406,22 +694,14 @@ def generate_report(
         sector_breakdown=sector_breakdown,
     )
 
-    # Individual stock sections
-    for r in passing_results:
-        screening = r.get("screening", {})
-        fundamentals = r.get("fundamentals", {})
-        signals = r.get("signals", {})
+    # Page 2: Glossary
+    pdf.add_glossary_page()
 
-        stock_data = {
-            "ticker": screening.get("ticker", "N/A"),
-            "company": screening.get("company", "N/A"),
-            "sector": screening.get("sector", "N/A"),
-            "industry": screening.get("industry", "N/A"),
-            "halal_screens": screening.get("screens", {}),
-            "fundamentals": fundamentals,
-            "signals": signals,
-        }
-        pdf.add_stock_section(stock_data)
+    # Pages 3-4: Top 10 + Investment Plan
+    pdf.add_top10_section(top10, allocations)
+
+    # Remaining pages: All passing stocks
+    pdf.add_all_stocks_section(stocks_by_sector)
 
     # Determine output path
     if output_path is None:
@@ -431,10 +711,7 @@ def generate_report(
     else:
         output_path = Path(output_path)
 
-    # Create parent directory if needed
     output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Write PDF
     pdf.output(str(output_path))
 
     return output_path

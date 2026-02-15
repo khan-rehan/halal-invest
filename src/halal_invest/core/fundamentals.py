@@ -21,6 +21,7 @@ def get_fundamentals(ticker: str) -> dict:
     Returns:
         Dictionary containing fundamental metrics with the following keys:
 
+        Price: current_price, fifty_two_week_high, fifty_two_week_low
         Valuation: pe_ratio, forward_pe, pb_ratio, peg_ratio, ev_ebitda,
                    market_cap
         Profitability: gross_margin, operating_margin, net_margin, roe, roa
@@ -42,7 +43,14 @@ def get_fundamentals(ticker: str) -> dict:
     if description and len(description) > 200:
         description = description[:200]
 
+    # Price data
+    current_price = info.get("currentPrice") or info.get("regularMarketPreviousClose")
+
     return {
+        # Price
+        "current_price": current_price,
+        "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
+        "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
         # Valuation
         "pe_ratio": info.get("trailingPE"),
         "forward_pe": info.get("forwardPE"),

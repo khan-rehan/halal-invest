@@ -17,6 +17,7 @@ HARAM_INDUSTRIES: set[str] = {
     "Distillers & Vintners",
     "Adult Entertainment",
     "Cannabis",
+    "Aerospace & Defense",
 }
 
 # ---------------------------------------------------------------------------
@@ -129,7 +130,8 @@ def screen_liquid_assets_ratio(info: dict) -> dict:
 def screen_impure_income(info: dict) -> dict:
     """Check impure (interest) income as a percentage of revenue (must be < 5%).
 
-    Uses ``interestExpense`` (absolute value) as a proxy for interest income.
+    Uses the greater of ``interestExpense`` (absolute value) and
+    ``interestIncome`` to capture interest-related revenue more accurately.
 
     Args:
         info: Stock info dictionary from yfinance.
@@ -138,6 +140,8 @@ def screen_impure_income(info: dict) -> dict:
         dict with keys ``pass``, ``value``, ``threshold``, and ``reason``.
     """
     interest_expense = abs(info.get("interestExpense", 0) or 0)
+    interest_income = abs(info.get("interestIncome", 0) or 0)
+    impure_amount = max(interest_expense, interest_income)
     total_revenue = info.get("totalRevenue")
 
     if total_revenue is None or total_revenue == 0:
@@ -148,7 +152,7 @@ def screen_impure_income(info: dict) -> dict:
             "reason": "Data unavailable - assumed compliant",
         }
 
-    ratio = interest_expense / total_revenue
+    ratio = impure_amount / total_revenue
 
     return {
         "pass": ratio < 0.05,
@@ -161,6 +165,41 @@ def screen_impure_income(info: dict) -> dict:
     }
 
 
+def screen_receivables_ratio(info: dict) -> dict:
+    """Check accounts receivable to market cap ratio (must be < 33%).
+
+    AAOIFI standard: net receivables / market cap should be below 33%.
+
+    Args:
+        info: Stock info dictionary from yfinance.
+
+    Returns:
+        dict with keys ``pass``, ``value``, ``threshold``, and ``reason``.
+    """
+    net_receivables = info.get("netReceivables")
+    market_cap = info.get("marketCap")
+
+    if net_receivables is None or market_cap is None or market_cap == 0:
+        return {
+            "pass": True,
+            "value": None,
+            "threshold": 0.33,
+            "reason": "Data unavailable - marked doubtful",
+        }
+
+    ratio = net_receivables / market_cap
+
+    return {
+        "pass": ratio < 0.33,
+        "value": ratio,
+        "threshold": 0.33,
+        "reason": (
+            f"Receivables ratio {ratio:.2%} is "
+            f"{'below' if ratio < 0.33 else 'above or equal to'} the 33% threshold"
+        ),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Main screening functions
 # ---------------------------------------------------------------------------
@@ -169,9 +208,9 @@ def screen_impure_income(info: dict) -> dict:
 def screen_stock(ticker: str) -> dict:
     """Run the full halal compliance screen for a single stock.
 
-    Fetches stock info via :func:`get_stock_info` and runs all four screening
+    Fetches stock info via :func:`get_stock_info` and runs all five screening
     criteria (business activity, debt ratio, liquid assets ratio, impure
-    income).
+    income, receivables ratio).
 
     Args:
         ticker: Stock ticker symbol (e.g. ``"AAPL"``).
@@ -199,22 +238,27 @@ def screen_stock(ticker: str) -> dict:
     debt_ratio = screen_debt_ratio(info)
     liquid_assets_ratio = screen_liquid_assets_ratio(info)
     impure_income = screen_impure_income(info)
+    receivables_ratio = screen_receivables_ratio(info)
 
     screens = {
         "business_activity": business_activity,
         "debt_ratio": debt_ratio,
         "liquid_assets_ratio": liquid_assets_ratio,
         "impure_income": impure_income,
+        "receivables_ratio": receivables_ratio,
     }
 
-    all_results = [business_activity, debt_ratio, liquid_assets_ratio, impure_income]
+    all_results = [
+        business_activity, debt_ratio, liquid_assets_ratio,
+        impure_income, receivables_ratio,
+    ]
 
     # Determine overall status
     if any(not r["pass"] for r in all_results):
         halal_status = "FAIL"
     elif any(
         r.get("value") is None
-        for r in [debt_ratio, liquid_assets_ratio, impure_income]
+        for r in [debt_ratio, liquid_assets_ratio, impure_income, receivables_ratio]
     ):
         halal_status = "DOUBTFUL"
     else:

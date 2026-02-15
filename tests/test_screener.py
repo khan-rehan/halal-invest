@@ -5,6 +5,7 @@ from halal_invest.core.screener import (
     screen_debt_ratio,
     screen_liquid_assets_ratio,
     screen_impure_income,
+    screen_receivables_ratio,
     HARAM_SECTORS,
     HARAM_INDUSTRIES,
 )
@@ -33,6 +34,11 @@ class TestBusinessActivity:
 
     def test_gambling_industry_fails(self):
         info = {"sector": "Consumer Discretionary", "industry": "Casinos & Gaming"}
+        result = screen_business_activity(info)
+        assert result["pass"] is False
+
+    def test_defense_industry_fails(self):
+        info = {"sector": "Industrials", "industry": "Aerospace & Defense"}
         result = screen_business_activity(info)
         assert result["pass"] is False
 
@@ -105,7 +111,40 @@ class TestImpureIncome:
         result = screen_impure_income(info)
         assert result["pass"] is True
 
+    def test_interest_income_used_when_higher(self):
+        # interestIncome is higher than interestExpense, should use it
+        info = {"interestExpense": -10_000, "interestIncome": 80_000, "totalRevenue": 1_000_000}
+        result = screen_impure_income(info)
+        assert result["pass"] is False
+        assert result["value"] == 80_000 / 1_000_000
+
     def test_missing_revenue_assumed_compliant(self):
         info = {}
         result = screen_impure_income(info)
         assert result["pass"] is True
+
+
+class TestReceivablesRatio:
+    def test_low_receivables_passes(self):
+        info = {"netReceivables": 100_000, "marketCap": 1_000_000}
+        result = screen_receivables_ratio(info)
+        assert result["pass"] is True
+        assert result["value"] < 0.33
+
+    def test_high_receivables_fails(self):
+        info = {"netReceivables": 400_000, "marketCap": 1_000_000}
+        result = screen_receivables_ratio(info)
+        assert result["pass"] is False
+        assert result["value"] >= 0.33
+
+    def test_missing_data_marked_doubtful(self):
+        info = {}
+        result = screen_receivables_ratio(info)
+        assert result["pass"] is True
+        assert result["value"] is None
+
+    def test_zero_market_cap(self):
+        info = {"netReceivables": 100_000, "marketCap": 0}
+        result = screen_receivables_ratio(info)
+        assert result["pass"] is True
+        assert result["value"] is None
