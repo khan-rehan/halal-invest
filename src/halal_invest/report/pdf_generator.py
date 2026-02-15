@@ -187,25 +187,60 @@ class HalalReportPDF(FPDF):
             ]),
         ]
 
+        term_w = 45
+        desc_w = 145
+
         for section_title, items in sections:
-            if self.get_y() > 255:
+            if self.get_y() > 250:
                 self.add_page()
+
+            # Section header
             self.set_font("Helvetica", "B", 9)
-            self.set_text_color(*self.DARK_GREEN)
-            self.cell(0, 5, section_title, new_x="LMARGIN", new_y="NEXT")
+            self.set_fill_color(*self.DARK_GREEN)
+            self.set_text_color(*self.WHITE)
+            self.cell(term_w + desc_w, 5, f"  {section_title}", border=1, fill=True)
+            self.ln()
             self.set_text_color(*self.BLACK)
 
-            for term, description in items:
+            for idx, (term, description) in enumerate(items):
                 if self.get_y() > 265:
                     self.add_page()
-                self.set_font("Helvetica", "B", 8)
-                self.cell(0, 4, self._sanitize(f"  {term}"), new_x="LMARGIN", new_y="NEXT")
-                self.set_font("Helvetica", "", 7)
-                # Use multi_cell for wrapping long descriptions
-                self.set_x(self.l_margin + 4)
-                self.multi_cell(180, 3.5, self._sanitize(description))
 
-            self.ln(1)
+                row_x = self.l_margin
+                row_y = self.get_y()
+
+                # Measure description height with multi_cell dry run
+                self.set_font("Helvetica", "", 7)
+                desc_lines = self.multi_cell(
+                    desc_w - 2, 3.5, self._sanitize(description),
+                    dry_run=True, output="LINES",
+                )
+                desc_h = max(len(desc_lines) * 3.5, 5)
+                row_h = max(desc_h, 5)
+
+                # Alternating row background
+                if idx % 2 == 0:
+                    self.set_fill_color(*self.LIGHT_GRAY)
+                else:
+                    self.set_fill_color(*self.WHITE)
+
+                # Term cell (left column)
+                self.set_xy(row_x, row_y)
+                self.set_font("Helvetica", "B", 7)
+                self.cell(term_w, row_h, self._sanitize(f" {term}"), border=1, fill=True)
+
+                # Description cell (right column)
+                self.set_xy(row_x + term_w, row_y)
+                self.set_font("Helvetica", "", 7)
+                # Draw the cell border and fill manually, then overlay text
+                self.cell(desc_w, row_h, "", border=1, fill=True)
+                self.set_xy(row_x + term_w + 1, row_y + 0.75)
+                self.multi_cell(desc_w - 2, 3.5, self._sanitize(description))
+
+                # Move to next row
+                self.set_y(row_y + row_h)
+
+            self.ln(2)
 
     # ------------------------------------------------------------------
     # Pages 3-4: Top 10 + Investment Plan
