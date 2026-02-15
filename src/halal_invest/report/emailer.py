@@ -62,14 +62,14 @@ def send_report_email(
         <li>Technical signals (RSI, MACD, SMA, Bollinger)</li>
     </ul>
     <p>May your investments be blessed and profitable.</p>
-    <p>— Halal Invest Tool</p>
+    <p>- Halal Invest Tool</p>
     """
 
     # Build Resend API payload
     payload = {
         "from": sender,
         "to": [recipient],
-        "subject": f"Halal S&P 500 Report — {total_passed} of {total_screened} stocks passed",
+        "subject": f"Halal S&P 500 Report - {total_passed} of {total_screened} stocks passed",
         "html": html_body,
         "attachments": [
             {
@@ -87,6 +87,7 @@ def send_report_email(
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
+                "User-Agent": "HalalInvest/1.0",
             },
             method="POST",
         )
