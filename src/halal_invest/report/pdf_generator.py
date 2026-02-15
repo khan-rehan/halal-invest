@@ -279,7 +279,7 @@ class HalalReportPDF(FPDF):
         self.cell(0, 6, "Top 10 Halal Stocks by Composite Score", new_x="LMARGIN", new_y="NEXT")
         self.ln(2)
 
-        col_widths = [8, 12, 36, 25, 12, 18, 22, 12, 12, 14, 14]  # 185 total
+        col_widths = [8, 14, 34, 24, 14, 18, 24, 14, 14, 14, 14]  # 192 total
         headers = ["#", "Ticker", "Company", "Sector", "Score", "Price", "Valuation", "P/E", "ROE", "Growth", "Signal"]
         self._table_header_row(list(zip(headers, col_widths)), font_size=7)
 
@@ -362,7 +362,7 @@ class HalalReportPDF(FPDF):
         self.cell(0, 8, "All Halal-Compliant Stocks", new_x="LMARGIN", new_y="NEXT")
         self.ln(2)
 
-        col_widths = [13, 36, 12, 17, 22, 14, 13, 13, 14, 14]  # 168 total
+        col_widths = [15, 38, 14, 18, 24, 14, 15, 15, 16, 16]  # 185 total
         headers = ["Ticker", "Company", "Score", "Price", "Valuation", "Debt%", "P/E", "ROE", "Growth", "Signal"]
 
         sorted_sectors = sorted(stocks_by_sector.keys())
@@ -482,7 +482,7 @@ class HalalReportPDF(FPDF):
         else:
             self.set_text_color(*self.BLACK)
 
-        self.set_font("Helvetica", "B", 7)
+        self.set_font("Helvetica", "B", 6)
         self.cell(width, height, tag, border=1, align="C", fill=True)
         self.set_text_color(*self.BLACK)
         self.set_font("Helvetica", "", 7)
