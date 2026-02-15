@@ -1,4 +1,4 @@
-name: Daily Halal S&P 500 Screener
+name: Daily SPUS Halal Investment Report
 
 on:
   schedule:
@@ -8,9 +8,9 @@ on:
   workflow_dispatch: {}  # Allow manual trigger for testing
 
 jobs:
-  screen-and-email:
+  analyze-and-email:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repository
@@ -25,7 +25,7 @@ jobs:
       - name: Install dependencies
         run: pip install .
 
-      - name: Run daily screener pipeline
+      - name: Run daily SPUS analysis pipeline
         run: python -m halal_invest.pipeline.daily_screener
         env:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
@@ -36,6 +36,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: halal-report-${{ github.run_number }}
+          name: spus-report-${{ github.run_number }}
           path: ~/halal-invest-reports/*.pdf
           retention-days: 30

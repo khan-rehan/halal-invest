@@ -1,4 +1,4 @@
-"""Generate PDF reports of halal screening results."""
+"""Generate PDF reports of SPUS halal investment analysis results."""
 
 from datetime import datetime
 from pathlib import Path
@@ -8,7 +8,7 @@ from halal_invest.core.scoring import score_stock, get_valuation_tag, allocate_i
 
 
 class HalalReportPDF(FPDF):
-    """Custom PDF document for halal stock screening reports."""
+    """Custom PDF document for SPUS halal investment reports."""
 
     # Color constants
     GREEN = (0, 128, 0)
@@ -34,7 +34,7 @@ class HalalReportPDF(FPDF):
         """Draw page header with report title and date."""
         self.set_font("Helvetica", "B", 14)
         self.cell(
-            0, 8, "Halal S&P 500 Daily Report",
+            0, 8, "SPUS Halal Investment Report",
             new_x="LMARGIN", new_y="NEXT", align="C",
         )
         self.set_font("Helvetica", "", 10)
@@ -62,27 +62,29 @@ class HalalReportPDF(FPDF):
 
     def add_summary_section(
         self,
-        total_screened: int,
-        total_passed: int,
-        total_failed: int,
-        total_error: int,
+        total_stocks: int,
+        avg_score: float,
+        avg_cagr_5y: float | None,
+        top_score: float,
         sector_breakdown: dict,
     ):
         """Add summary page with stat grid and sector breakdown."""
         # 4-box stat grid
         self.set_font("Helvetica", "B", 11)
-        self.cell(0, 8, "Screening Overview", new_x="LMARGIN", new_y="NEXT")
+        self.cell(0, 8, "Analysis Overview", new_x="LMARGIN", new_y="NEXT")
         self.ln(2)
 
         box_w = 45
         box_h = 18
         start_x = self.get_x()
 
+        cagr_str = f"{avg_cagr_5y * 100:.1f}%" if avg_cagr_5y is not None else "N/A"
+
         stats = [
-            ("Total Screened", str(total_screened)),
-            ("Halal Passed", str(total_passed)),
-            ("Failed", str(total_failed)),
-            ("Pass Rate", f"{total_passed / total_screened * 100:.0f}%" if total_screened else "0%"),
+            ("Total SPUS Stocks", str(total_stocks)),
+            ("Avg Score", f"{avg_score:.1f}"),
+            ("Avg 5Y CAGR", cagr_str),
+            ("Top Score", f"{top_score:.1f}"),
         ]
 
         for i, (label, value) in enumerate(stats):
@@ -110,13 +112,13 @@ class HalalReportPDF(FPDF):
         if sector_breakdown:
             self.set_font("Helvetica", "B", 10)
             self.cell(
-                0, 6, "Sector Breakdown (Passing Stocks)",
+                0, 6, "Sector Breakdown (SPUS Holdings)",
                 new_x="LMARGIN", new_y="NEXT",
             )
             self.ln(2)
 
             self._table_header_row(
-                [("Sector", 80), ("Count", 30), ("% of Passed", 40)],
+                [("Sector", 80), ("Count", 30), ("% of Total", 40)],
             )
 
             sorted_sectors = sorted(
@@ -125,7 +127,7 @@ class HalalReportPDF(FPDF):
             self.set_font("Helvetica", "", 9)
 
             for idx, (sector, count) in enumerate(sorted_sectors):
-                pct = (count / total_passed * 100) if total_passed > 0 else 0.0
+                pct = (count / total_stocks * 100) if total_stocks > 0 else 0.0
                 self._set_row_bg(idx)
                 self.cell(80, 5, self._sanitize(sector[:40]), border=1, fill=True)
                 self.cell(30, 5, str(count), border=1, align="C", fill=True)
@@ -146,12 +148,6 @@ class HalalReportPDF(FPDF):
         self.ln(2)
 
         sections = [
-            ("Halal Screening", [
-                ("Debt Ratio", "Total company debt divided by market value. Must be under 33% to pass."),
-                ("Liquid Assets Ratio", "Cash and short-term investments divided by market value. Must be under 33%."),
-                ("Receivables Ratio", "Money owed to the company divided by market value. Must be under 33%."),
-                ("Impure Income", "Interest-based income as a share of total revenue. Must be under 5%."),
-            ]),
             ("Valuation Metrics", [
                 ("P/E (Price-to-Earnings)", "How many years of current earnings you're paying for the stock. Lower = cheaper. Under 15 is considered cheap, 15-25 is fair, over 25 is expensive."),
                 ("P/B (Price-to-Book)", "Stock price relative to the company's net asset value. Under 1.5 is cheap, 1.5-3 is fair, over 3 is expensive."),
@@ -166,6 +162,11 @@ class HalalReportPDF(FPDF):
                 ("Revenue Growth", "How fast the company's sales are increasing year-over-year."),
                 ("Earnings Growth", "How fast profits are increasing. Strong earnings growth drives stock prices up."),
             ]),
+            ("Historical Growth (CAGR)", [
+                ("What is CAGR?", "Compound Annual Growth Rate -- the average yearly return if growth were perfectly smooth. A 10% CAGR over 5 years means $100 would become ~$161."),
+                ("5Y CAGR", "Annualized stock price growth over the past 5 years. Shows medium-term momentum."),
+                ("10Y CAGR", "Annualized stock price growth over the past 10 years. Shows long-term compounding ability."),
+            ]),
             ("Financial Health", [
                 ("Debt/Equity", "Total debt relative to shareholder equity. Lower means less financial risk."),
                 ("Current Ratio", "Ability to pay short-term bills. Above 1.5 is healthy, below 1 is risky."),
@@ -178,7 +179,7 @@ class HalalReportPDF(FPDF):
                 ("Bollinger Bands", "Price bands around the average. Price near the lower band = potentially oversold and cheap."),
             ]),
             ("Composite Score (0-100)", [
-                ("What it means", "A weighted score combining valuation (30%), profitability (25%), growth (20%), financial health (15%), and technical signals (10%). Higher = better overall quality."),
+                ("What it means", "A weighted score combining valuation (25%), profitability (20%), short-term growth (15%), historical growth (15%), financial health (15%), and technical signals (10%). Higher = better overall quality."),
             ]),
             ("Valuation Tag", [
                 ("UNDERPRICED", "Stock appears cheap based on P/E, P/B, PEG, and 52-week position."),
@@ -250,9 +251,9 @@ class HalalReportPDF(FPDF):
         """Add Top 10 stocks and investment allocation plan.
 
         Args:
-            top10: List of dicts with keys: rank, ticker, company, sector,
-                score, price, valuation_tag, pe_ratio, roe, revenue_growth,
-                overall_signal.
+            top10: List of dicts with keys: rank, ticker, company,
+                score, price, valuation_tag, cagr_5y, cagr_10y,
+                pe_ratio, overall_signal.
             allocations: Output from ``allocate_investment()``.
         """
         self.add_page()
@@ -311,11 +312,11 @@ class HalalReportPDF(FPDF):
 
         # --- Top 10 Ranked Table ---
         self.set_font("Helvetica", "B", 10)
-        self.cell(0, 6, "Top 10 Halal Stocks by Composite Score", new_x="LMARGIN", new_y="NEXT")
+        self.cell(0, 6, "Top 10 SPUS Stocks by Composite Score", new_x="LMARGIN", new_y="NEXT")
         self.ln(2)
 
-        col_widths = [8, 14, 34, 24, 14, 18, 24, 14, 14, 14, 14]  # 192 total
-        headers = ["#", "Ticker", "Company", "Sector", "Score", "Price", "Valuation", "P/E", "ROE", "Growth", "Signal"]
+        col_widths = [8, 14, 38, 14, 18, 24, 18, 18, 14, 18]  # 184 total
+        headers = ["#", "Ticker", "Company", "Score", "Price", "Valuation", "5Y CAGR", "10Y CAGR", "P/E", "Signal"]
         self._table_header_row(list(zip(headers, col_widths)), font_size=7)
 
         self.set_font("Helvetica", "", 7)
@@ -325,32 +326,31 @@ class HalalReportPDF(FPDF):
             self._set_row_bg(i)
             self.cell(col_widths[0], 5, str(i + 1), border=1, align="C", fill=True)
             self.cell(col_widths[1], 5, self._sanitize(stock.get("ticker", "")), border=1, fill=True)
-            self.cell(col_widths[2], 5, self._sanitize(stock.get("company", "")[:22]), border=1, fill=True)
-            self.cell(col_widths[3], 5, self._sanitize(stock.get("sector", "")[:16]), border=1, fill=True)
+            self.cell(col_widths[2], 5, self._sanitize(stock.get("company", "")[:24]), border=1, fill=True)
 
             # Score with color
             score = stock.get("score", 0)
-            self._score_cell(score, col_widths[4])
+            self._score_cell(score, col_widths[3])
 
             price = stock.get("price")
             price_str = f"${price:.2f}" if price else "N/A"
-            self.cell(col_widths[5], 5, price_str, border=1, align="R", fill=True)
+            self.cell(col_widths[4], 5, price_str, border=1, align="R", fill=True)
 
-            self._valuation_cell(stock.get("valuation_tag", ""), col_widths[6])
+            self._valuation_cell(stock.get("valuation_tag", ""), col_widths[5])
+
+            cagr_5y = stock.get("cagr_5y")
+            cagr_5y_str = f"{cagr_5y * 100:.1f}%" if cagr_5y is not None else "N/A"
+            self.cell(col_widths[6], 5, cagr_5y_str, border=1, align="R", fill=True)
+
+            cagr_10y = stock.get("cagr_10y")
+            cagr_10y_str = f"{cagr_10y * 100:.1f}%" if cagr_10y is not None else "N/A"
+            self.cell(col_widths[7], 5, cagr_10y_str, border=1, align="R", fill=True)
 
             pe = stock.get("pe_ratio")
-            self.cell(col_widths[7], 5, f"{pe:.1f}" if pe else "N/A", border=1, align="R", fill=True)
-
-            roe = stock.get("roe")
-            roe_str = self._format_value(roe, "pct") if roe is not None else "N/A"
-            self.cell(col_widths[8], 5, roe_str, border=1, align="R", fill=True)
-
-            growth = stock.get("revenue_growth")
-            growth_str = self._format_value(growth, "pct") if growth is not None else "N/A"
-            self.cell(col_widths[9], 5, growth_str, border=1, align="R", fill=True)
+            self.cell(col_widths[8], 5, f"{pe:.1f}" if pe else "N/A", border=1, align="R", fill=True)
 
             signal = stock.get("overall_signal", "N/A")
-            self._signal_cell(signal, col_widths[10])
+            self._signal_cell(signal, col_widths[9])
 
             self.ln()
 
@@ -370,36 +370,36 @@ class HalalReportPDF(FPDF):
             tag = stock.get("valuation_tag", "FAIR VALUE")
             signal = stock.get("overall_signal", "HOLD")
             pe = stock.get("pe_ratio")
-            roe = stock.get("roe")
+            cagr_5y = stock.get("cagr_5y")
 
             pe_note = f"P/E {pe:.1f}" if pe else "P/E N/A"
-            roe_note = f"ROE {self._format_value(roe, 'pct')}" if roe is not None else "ROE N/A"
+            cagr_note = f"5Y CAGR {cagr_5y * 100:.1f}%" if cagr_5y is not None else "5Y CAGR N/A"
 
-            summary = f"{i+1}. {ticker} ({company}) -- Score {score}, {tag}, {signal} signal, {pe_note}, {roe_note}"
+            summary = f"{i+1}. {ticker} ({company}) -- Score {score}, {tag}, {signal} signal, {pe_note}, {cagr_note}"
             self.set_font("Helvetica", "", 7)
             self.set_x(self.l_margin)
             self.multi_cell(190, 3.5, self._sanitize(summary))
 
     # ------------------------------------------------------------------
-    # All Passing Stocks: Compact Table grouped by Sector
+    # All Stocks: Compact Table grouped by Sector
     # ------------------------------------------------------------------
 
     def add_all_stocks_section(self, stocks_by_sector: dict):
-        """Add compact tables of all passing stocks grouped by sector.
+        """Add compact tables of all stocks grouped by sector.
 
         Args:
             stocks_by_sector: Dict mapping sector name to list of stock dicts.
                 Each stock dict has: ticker, company, score, price,
-                valuation_tag, debt_pct, pe_ratio, roe, revenue_growth,
-                overall_signal.
+                valuation_tag, cagr_5y, cagr_10y, pe_ratio, roe,
+                revenue_growth, overall_signal.
         """
         self.add_page()
         self.set_font("Helvetica", "B", 13)
-        self.cell(0, 8, "All Halal-Compliant Stocks", new_x="LMARGIN", new_y="NEXT")
+        self.cell(0, 8, "All SPUS Holdings", new_x="LMARGIN", new_y="NEXT")
         self.ln(2)
 
-        col_widths = [15, 38, 14, 18, 24, 14, 15, 15, 16, 16]  # 185 total
-        headers = ["Ticker", "Company", "Score", "Price", "Valuation", "Debt%", "P/E", "ROE", "Growth", "Signal"]
+        col_widths = [15, 34, 14, 18, 24, 16, 16, 15, 16, 16]  # 184 total
+        headers = ["Ticker", "Company", "Score", "Price", "Valuation", "5Y CAGR", "10Y CAGR", "P/E", "Growth", "Signal"]
 
         sorted_sectors = sorted(stocks_by_sector.keys())
 
@@ -448,7 +448,7 @@ class HalalReportPDF(FPDF):
                 self._set_row_bg(idx)
 
                 self.cell(col_widths[0], 4.5, self._sanitize(stock.get("ticker", "")), border=1, fill=True)
-                self.cell(col_widths[1], 4.5, self._sanitize(stock.get("company", "")[:22]), border=1, fill=True)
+                self.cell(col_widths[1], 4.5, self._sanitize(stock.get("company", "")[:20]), border=1, fill=True)
 
                 self._score_cell(stock.get("score", 0), col_widths[2], height=4.5)
 
@@ -458,16 +458,16 @@ class HalalReportPDF(FPDF):
 
                 self._valuation_cell(stock.get("valuation_tag", ""), col_widths[4], height=4.5)
 
-                debt_pct = stock.get("debt_pct")
-                debt_str = f"{debt_pct:.0f}%" if debt_pct is not None else "N/A"
-                self.cell(col_widths[5], 4.5, debt_str, border=1, align="R", fill=True)
+                cagr_5y = stock.get("cagr_5y")
+                cagr_5y_str = f"{cagr_5y * 100:.1f}%" if cagr_5y is not None else "N/A"
+                self.cell(col_widths[5], 4.5, cagr_5y_str, border=1, align="R", fill=True)
+
+                cagr_10y = stock.get("cagr_10y")
+                cagr_10y_str = f"{cagr_10y * 100:.1f}%" if cagr_10y is not None else "N/A"
+                self.cell(col_widths[6], 4.5, cagr_10y_str, border=1, align="R", fill=True)
 
                 pe = stock.get("pe_ratio")
-                self.cell(col_widths[6], 4.5, f"{pe:.1f}" if pe else "N/A", border=1, align="R", fill=True)
-
-                roe = stock.get("roe")
-                roe_str = self._format_value(roe, "pct") if roe is not None else "N/A"
-                self.cell(col_widths[7], 4.5, roe_str, border=1, align="R", fill=True)
+                self.cell(col_widths[7], 4.5, f"{pe:.1f}" if pe else "N/A", border=1, align="R", fill=True)
 
                 growth = stock.get("revenue_growth")
                 growth_str = self._format_value(growth, "pct") if growth is not None else "N/A"
@@ -616,78 +616,48 @@ class HalalReportPDF(FPDF):
 
 
 def generate_report(
-    screening_results: list[dict],
+    stock_results: list[dict],
     output_path: str | Path | None = None,
-    total_screened: int | None = None,
-    total_failed: int | None = None,
-    total_error: int | None = None,
 ) -> Path:
-    """Generate a PDF report from screening results.
+    """Generate a PDF report from SPUS stock analysis results.
 
     Args:
-        screening_results: List of dicts, each containing::
+        stock_results: List of dicts, each containing::
 
             {
-                "screening": { ... screen_stock result ... },
+                "ticker": "AAPL",
                 "fundamentals": { ... get_fundamentals result ... },
                 "signals": { ... get_signals result ... },
+                "historical_growth": { ... get_historical_growth result ... },
             }
 
         output_path: Optional output file path. Defaults to
-            ``~/halal-invest-reports/halal_report_YYYY-MM-DD.pdf``.
-        total_screened: Override for total stocks screened count.
-        total_failed: Override for failed count.
-        total_error: Override for error count.
+            ``~/halal-invest-reports/spus_report_YYYY-MM-DD.pdf``.
 
     Returns:
         The Path to the generated PDF file.
     """
-    # Filter to only PASS and DOUBTFUL results
-    passing_results = [
-        r for r in screening_results
-        if r.get("screening", {}).get("halal_status") in ("PASS", "DOUBTFUL")
-    ]
-
-    # Compute totals
-    total_passed = len(passing_results)
-    if total_screened is None:
-        total_screened = len(screening_results)
-    if total_failed is None:
-        total_failed = sum(
-            1 for r in screening_results
-            if r.get("screening", {}).get("halal_status") == "FAIL"
-        )
-    if total_error is None:
-        total_error = sum(
-            1 for r in screening_results
-            if r.get("screening", {}).get("halal_status") == "ERROR"
-        )
-
     # Compute sector breakdown
     sector_breakdown: dict[str, int] = {}
-    for r in passing_results:
-        sector = r.get("screening", {}).get("sector", "Unknown")
+    for r in stock_results:
+        sector = r.get("fundamentals", {}).get("sector") or "Unknown"
         sector_breakdown[sector] = sector_breakdown.get(sector, 0) + 1
 
-    # Score and tag every passing stock
+    # Score and tag every stock
     scored_stocks = []
-    for r in passing_results:
+    for r in stock_results:
         fundamentals = r.get("fundamentals", {})
         signals = r.get("signals", {})
-        screening = r.get("screening", {})
+        historical_growth = r.get("historical_growth", {})
 
-        composite_score = score_stock(fundamentals, signals)
+        composite_score = score_stock(fundamentals, signals, historical_growth)
         valuation_tag = get_valuation_tag(fundamentals)
 
-        # Debt percentage from screening data
-        debt_val = screening.get("screens", {}).get("debt_ratio", {}).get("value")
-        debt_pct = debt_val * 100 if debt_val is not None else None
-
         scored_stocks.append({
-            "ticker": screening.get("ticker", "N/A"),
-            "company": screening.get("company", "N/A"),
-            "sector": screening.get("sector", "N/A"),
-            "industry": screening.get("industry", "N/A"),
+            "ticker": r.get("ticker", "N/A"),
+            "company": fundamentals.get("name") or "N/A",
+            "sector": fundamentals.get("sector") or "N/A",
+            "industry": fundamentals.get("industry") or "N/A",
             "score": composite_score,
             "valuation_tag": valuation_tag,
             "price": fundamentals.get("current_price"),
@@ -695,11 +665,20 @@ def generate_report(
             "roe": fundamentals.get("roe"),
             "revenue_growth": fundamentals.get("revenue_growth"),
             "overall_signal": signals.get("overall", {}).get("signal", "N/A"),
-            "debt_pct": debt_pct,
+            "cagr_5y": historical_growth.get("cagr_5y"),
+            "cagr_10y": historical_growth.get("cagr_10y"),
         })
 
     # Sort by score descending
     scored_stocks.sort(key=lambda s: s["score"], reverse=True)
+
+    # Compute summary stats
+    total_stocks = len(scored_stocks)
+    avg_score = sum(s["score"] for s in scored_stocks) / total_stocks if total_stocks else 0
+    top_score = scored_stocks[0]["score"] if scored_stocks else 0
+
+    cagr_5y_values = [s["cagr_5y"] for s in scored_stocks if s["cagr_5y"] is not None]
+    avg_cagr_5y = sum(cagr_5y_values) / len(cagr_5y_values) if cagr_5y_values else None
 
     # Top 10
     top10 = scored_stocks[:10]
@@ -723,10 +702,10 @@ def generate_report(
 
     # Page 1: Summary
     pdf.add_summary_section(
-        total_screened=total_screened,
-        total_passed=total_passed,
-        total_failed=total_failed,
-        total_error=total_error,
+        total_stocks=total_stocks,
+        avg_score=avg_score,
+        avg_cagr_5y=avg_cagr_5y,
+        top_score=top_score,
         sector_breakdown=sector_breakdown,
     )
 
@@ -736,14 +715,14 @@ def generate_report(
     # Pages 3-4: Top 10 + Investment Plan
     pdf.add_top10_section(top10, allocations)
 
-    # Remaining pages: All passing stocks
+    # Remaining pages: All stocks
     pdf.add_all_stocks_section(stocks_by_sector)
 
     # Determine output path
     if output_path is None:
         today = datetime.now().strftime("%Y-%m-%d")
         output_dir = Path.home() / "halal-invest-reports"
-        output_path = output_dir / f"halal_report_{today}.pdf"
+        output_path = output_dir / f"spus_report_{today}.pdf"
     else:
         output_path = Path(output_path)
 

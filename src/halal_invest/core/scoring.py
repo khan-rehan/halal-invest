@@ -183,28 +183,64 @@ def _score_technical_signal(signal_str):
     return 5  # N/A
 
 
+def _score_historical_cagr(cagr_5y, cagr_10y):
+    """Score historical growth based on 5Y and 10Y CAGR.
+
+    Averages whichever values are available, then maps to 0-10.
+    Returns neutral 5 if neither is available.
+    """
+    values = [v for v in (cagr_5y, cagr_10y) if v is not None]
+    if not values:
+        return 5
+
+    avg = sum(values) / len(values)
+    pct = avg * 100  # convert decimal to percentage
+
+    if pct > 20:
+        return 10
+    if pct > 15:
+        return 9
+    if pct > 10:
+        return 7
+    if pct > 5:
+        return 5
+    if pct > 0:
+        return 3
+    return 1
+
+
 # ---------------------------------------------------------------------------
 # Main scoring function
 # ---------------------------------------------------------------------------
 
-def score_stock(fundamentals: dict, signals: dict) -> float:
+def score_stock(
+    fundamentals: dict,
+    signals: dict,
+    historical_growth: dict | None = None,
+) -> float:
     """Compute a 0-100 composite score for a stock.
 
     Categories and weights:
-        Valuation (30%):  P/E, P/B, PEG
-        Profitability (25%): Net margin, ROE, ROA
-        Growth (20%): Revenue growth, earnings growth
+        Valuation (25%):  P/E, P/B, PEG
+        Profitability (20%): Net margin, ROE, ROA
+        Short-term Growth (15%): Revenue growth, earnings growth
+        Historical Growth (15%): 5Y and 10Y CAGR
         Financial Health (15%): Debt/equity, current ratio, FCF
         Technical (10%): Overall signal
 
     Args:
         fundamentals: Output from ``get_fundamentals()``.
         signals: Output from ``get_signals()``.
+        historical_growth: Output from ``get_historical_growth()``.
+            Optional for backward compatibility.
 
     Returns:
         Composite score from 0 to 100 (rounded to 1 decimal).
     """
-    # Valuation (average of 3 sub-metrics, weight 30%)
+    if historical_growth is None:
+        historical_growth = {}
+
+    # Valuation (average of 3 sub-metrics, weight 25%)
     val_scores = [
         _score_pe(fundamentals.get("pe_ratio")),
         _score_pb(fundamentals.get("pb_ratio")),
@@ -212,7 +248,7 @@ def score_stock(fundamentals: dict, signals: dict) -> float:
     ]
     valuation_avg = sum(val_scores) / len(val_scores)
 
-    # Profitability (average of 3 sub-metrics, weight 25%)
+    # Profitability (average of 3 sub-metrics, weight 20%)
     prof_scores = [
         _score_net_margin(fundamentals.get("net_margin")),
         _score_roe(fundamentals.get("roe")),
@@ -220,12 +256,18 @@ def score_stock(fundamentals: dict, signals: dict) -> float:
     ]
     profitability_avg = sum(prof_scores) / len(prof_scores)
 
-    # Growth (average of 2 sub-metrics, weight 20%)
+    # Short-term Growth (average of 2 sub-metrics, weight 15%)
     growth_scores = [
         _score_revenue_growth(fundamentals.get("revenue_growth")),
         _score_earnings_growth(fundamentals.get("earnings_growth")),
     ]
     growth_avg = sum(growth_scores) / len(growth_scores)
+
+    # Historical Growth (single metric, weight 15%)
+    historical_score = _score_historical_cagr(
+        historical_growth.get("cagr_5y"),
+        historical_growth.get("cagr_10y"),
+    )
 
     # Financial Health (average of 3 sub-metrics, weight 15%)
     health_scores = [
@@ -241,9 +283,10 @@ def score_stock(fundamentals: dict, signals: dict) -> float:
 
     # Weighted composite (each avg is 0-10, scale to 0-100)
     composite = (
-        valuation_avg * 0.30
-        + profitability_avg * 0.25
-        + growth_avg * 0.20
+        valuation_avg * 0.25
+        + profitability_avg * 0.20
+        + growth_avg * 0.15
+        + historical_score * 0.15
         + health_avg * 0.15
         + technical_score * 0.10
     ) * 10

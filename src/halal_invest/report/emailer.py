@@ -13,11 +13,10 @@ RESEND_API_URL = "https://api.resend.com/emails"
 
 def send_report_email(
     pdf_path: Path,
-    total_screened: int,
-    total_passed: int,
+    total_stocks: int,
     recipient: str | None = None,
 ) -> bool:
-    """Send the halal screening PDF report via Resend API.
+    """Send the SPUS halal investment PDF report via Resend API.
 
     Credentials are read from environment variables:
     - RESEND_API_KEY: Resend API key
@@ -45,21 +44,19 @@ def send_report_email(
     # Build email body
     html_body = f"""
     <h2>Assalamu Alaikum,</h2>
-    <p>Your daily Halal S&amp;P 500 screening report is attached.</p>
+    <p>Your daily SPUS Halal Investment Report is attached.</p>
     <h3>Summary</h3>
     <ul>
-        <li>Total S&amp;P 500 stocks screened: <strong>{total_screened}</strong></li>
-        <li>Halal compliant (PASS): <strong>{total_passed}</strong></li>
-        <li>Non-compliant (FAIL): <strong>{total_screened - total_passed}</strong></li>
+        <li>SPUS ETF stocks analyzed: <strong>{total_stocks}</strong></li>
     </ul>
-    <p>The attached PDF contains detailed analysis of all passing stocks including:</p>
+    <p>The attached PDF contains detailed analysis of all SPUS holdings including:</p>
     <ul>
-        <li>Halal screening ratios</li>
         <li>Valuation metrics (P/E, P/B, PEG)</li>
         <li>Profitability (margins, ROE, ROA)</li>
-        <li>Growth (revenue &amp; earnings)</li>
+        <li>Historical growth (5-year and 10-year CAGR)</li>
         <li>Financial health (debt, cash flow)</li>
         <li>Technical signals (RSI, MACD, SMA, Bollinger)</li>
+        <li>Top 10 stocks with $1,000 investment plan</li>
     </ul>
     <p>May your investments be blessed and profitable.</p>
     <p>- Halal Invest Tool</p>
@@ -69,7 +66,7 @@ def send_report_email(
     payload = {
         "from": sender,
         "to": [recipient],
-        "subject": f"Halal S&P 500 Report - {total_passed} of {total_screened} stocks passed",
+        "subject": f"SPUS Halal Investment Report - {total_stocks} stocks analyzed",
         "html": html_body,
         "attachments": [
             {

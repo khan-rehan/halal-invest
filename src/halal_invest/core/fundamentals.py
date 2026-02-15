@@ -6,7 +6,7 @@ stock data, covering valuation, profitability, growth, financial
 health, dividends, and general company information.
 """
 
-from halal_invest.core.data import get_stock_info
+from halal_invest.core.data import get_stock_info, get_price_history
 
 
 def get_fundamentals(ticker: str) -> dict:
@@ -82,3 +82,66 @@ def get_fundamentals(ticker: str) -> dict:
         "industry": info.get("industry"),
         "description": description,
     }
+
+
+# ---------------------------------------------------------------------------
+# Historical Growth (CAGR)
+# ---------------------------------------------------------------------------
+
+
+def _compute_cagr(start_price: float, end_price: float, years: float) -> float | None:
+    """Compute Compound Annual Growth Rate.
+
+    Args:
+        start_price: Price at the beginning of the period.
+        end_price: Price at the end of the period.
+        years: Number of years in the period.
+
+    Returns:
+        CAGR as a decimal (e.g. 0.12 for 12%), or None if inputs are invalid.
+    """
+    if start_price is None or end_price is None or years <= 0:
+        return None
+    if start_price <= 0:
+        return None
+    try:
+        return (end_price / start_price) ** (1 / years) - 1
+    except (ZeroDivisionError, ValueError, OverflowError):
+        return None
+
+
+def get_historical_growth(ticker: str) -> dict:
+    """Fetch historical price growth (CAGR) for multiple time periods.
+
+    Computes the Compound Annual Growth Rate for 1-year, 3-year, 5-year,
+    and 10-year periods. Each period is fetched independently so stocks
+    with shorter histories still return partial data.
+
+    Args:
+        ticker: Stock ticker symbol (e.g. "AAPL").
+
+    Returns:
+        Dictionary with keys: cagr_1y, cagr_3y, cagr_5y, cagr_10y.
+        Each value is a float (decimal) or None if unavailable.
+    """
+    periods = [
+        ("cagr_1y", "1y", 1),
+        ("cagr_3y", "3y", 3),
+        ("cagr_5y", "5y", 5),
+        ("cagr_10y", "10y", 10),
+    ]
+
+    result = {}
+    for key, period, years in periods:
+        try:
+            history = get_price_history(ticker, period=period)
+            if history.empty or len(history) < 2:
+                result[key] = None
+                continue
+            start_price = float(history["Close"].iloc[0])
+            end_price = float(history["Close"].iloc[-1])
+            result[key] = _compute_cagr(start_price, end_price, years)
+        except Exception:
+            result[key] = None
+
+    return result
