@@ -103,7 +103,7 @@ class HalalReportPDF(FPDF):
                     self.set_fill_color(240, 240, 240)
                 else:
                     self.set_fill_color(255, 255, 255)
-                self.cell(80, 5, sector[:40], border=1, fill=True)
+                self.cell(80, 5, self._sanitize(sector[:40]), border=1, fill=True)
                 self.cell(30, 5, str(count), border=1, align="C", fill=True)
                 self.cell(40, 5, f"{pct:.1f}%", border=1, align="C", fill=True)
                 self.ln()
@@ -148,10 +148,10 @@ class HalalReportPDF(FPDF):
         # Stock header
         self.set_font("Helvetica", "B", 11)
         self.set_text_color(0, 80, 0)
-        self.cell(0, 6, f"{ticker} — {company}", new_x="LMARGIN", new_y="NEXT")
+        self.cell(0, 6, self._sanitize(f"{ticker} - {company}"), new_x="LMARGIN", new_y="NEXT")
         self.set_text_color(0, 0, 0)
         self.set_font("Helvetica", "I", 9)
-        self.cell(0, 4, f"{sector} | {industry}", new_x="LMARGIN", new_y="NEXT")
+        self.cell(0, 4, self._sanitize(f"{sector} | {industry}"), new_x="LMARGIN", new_y="NEXT")
         self.ln(2)
 
         # --- Halal Screening ---
@@ -250,6 +250,25 @@ class HalalReportPDF(FPDF):
     # Helpers
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _sanitize(text: str) -> str:
+        """Replace non-ASCII characters with safe Latin-1 equivalents."""
+        replacements = {
+            "\u2014": "--",   # em dash
+            "\u2013": "-",    # en dash
+            "\u2018": "'",    # left single quote
+            "\u2019": "'",    # right single quote
+            "\u201c": '"',    # left double quote
+            "\u201d": '"',    # right double quote
+            "\u2026": "...",  # ellipsis
+            "\u2022": "*",    # bullet
+            "\u00a0": " ",    # non-breaking space
+        }
+        for char, repl in replacements.items():
+            text = text.replace(char, repl)
+        # Fallback: replace any remaining non-latin1 chars
+        return text.encode("latin-1", errors="replace").decode("latin-1")
+
     def _section_label(self, text: str):
         """Print a small bold label for a subsection."""
         self.set_font("Helvetica", "B", 8)
@@ -260,16 +279,16 @@ class HalalReportPDF(FPDF):
     def _mini_cell(self, label: str, value: str, width: float):
         """Print a label: value pair in a fixed-width cell (no line break)."""
         self.set_font("Helvetica", "B", 8)
-        self.cell(20, 4, f"{label}:", align="R")
+        self.cell(20, 4, self._sanitize(f"{label}:"), align="R")
         self.set_font("Helvetica", "", 8)
-        self.cell(width - 20, 4, f" {value}")
+        self.cell(width - 20, 4, self._sanitize(f" {value}"))
 
     def _inline_metrics(self, items: list[tuple[str, str]]):
         """Print a list of (label, value) pairs on a single line."""
         self.set_font("Helvetica", "", 8)
         parts = [f"{label}: {value}" for label, value in items]
         line = "   |   ".join(parts)
-        self.cell(0, 4, line, new_x="LMARGIN", new_y="NEXT")
+        self.cell(0, 4, self._sanitize(line), new_x="LMARGIN", new_y="NEXT")
 
     def _format_value(self, value, fmt: str = "general") -> str:
         """Format a value for display in the report.
