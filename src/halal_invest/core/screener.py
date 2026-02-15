@@ -9,15 +9,38 @@ from halal_invest.core.data import get_stock_info, get_financial_data
 HARAM_SECTORS: set[str] = {"Financial Services", "Financials"}
 
 HARAM_INDUSTRIES: set[str] = {
+    # Alcohol
     "Alcoholic Beverages",
-    "Tobacco",
-    "Gambling",
-    "Casinos & Gaming",
     "Brewers",
     "Distillers & Vintners",
+    "Beverages - Brewers",
+    "Beverages - Wineries & Distilleries",
+    # Tobacco
+    "Tobacco",
+    # Gambling
+    "Gambling",
+    "Casinos & Gaming",
+    "Resorts & Casinos",
+    # Adult content
     "Adult Entertainment",
+    # Cannabis
     "Cannabis",
+    # Weapons & Defense
     "Aerospace & Defense",
+}
+
+# Curated list of non-compliant tickers that pass industry-level screening
+# but derive significant revenue from haram activities.
+HARAM_TICKERS: dict[str, str] = {
+    # Explicit/adult content production
+    "NFLX": "Produces and distributes explicit adult content",
+    # Defense revenue under non-defense industry labels (e.g. 'Conglomerates')
+    "HON": "Significant defense contracts - military avionics, guidance systems, weapons components",
+    "LDOS": "Leidos - major defense/intelligence contractor classified under IT Services",
+    "BAH": "Booz Allen Hamilton - defense/intelligence contractor classified under Consulting",
+    # Significant pork processing/production revenue
+    "TSN": "Tyson Foods - one of world's largest pork processors",
+    "HRL": "Hormel Foods - significant pork products (SPAM, Hormel pork)",
 }
 
 # ---------------------------------------------------------------------------
@@ -25,11 +48,14 @@ HARAM_INDUSTRIES: set[str] = {
 # ---------------------------------------------------------------------------
 
 
-def screen_business_activity(info: dict) -> dict:
+def screen_business_activity(info: dict, ticker: str = "") -> dict:
     """Check whether the company's sector/industry is Sharia-compliant.
+
+    Checks sector, industry, and a curated list of non-compliant tickers.
 
     Args:
         info: Stock info dictionary from yfinance.
+        ticker: Stock ticker symbol for curated list check.
 
     Returns:
         dict with keys ``pass``, ``detail``, and ``reason``.
@@ -49,6 +75,15 @@ def screen_business_activity(info: dict) -> dict:
             "pass": False,
             "detail": f"Industry '{industry}' is non-compliant",
             "reason": f"Industry '{industry}' involves prohibited activities",
+        }
+
+    ticker_upper = ticker.upper()
+    if ticker_upper in HARAM_TICKERS:
+        reason = HARAM_TICKERS[ticker_upper]
+        return {
+            "pass": False,
+            "detail": f"Ticker '{ticker_upper}' is on curated non-compliant list",
+            "reason": reason,
         }
 
     return {
@@ -234,7 +269,7 @@ def screen_stock(ticker: str) -> dict:
             "screens": {},
         }
 
-    business_activity = screen_business_activity(info)
+    business_activity = screen_business_activity(info, ticker=ticker)
     debt_ratio = screen_debt_ratio(info)
     liquid_assets_ratio = screen_liquid_assets_ratio(info)
     impure_income = screen_impure_income(info)

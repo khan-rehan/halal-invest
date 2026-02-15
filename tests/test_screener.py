@@ -8,6 +8,7 @@ from halal_invest.core.screener import (
     screen_receivables_ratio,
     HARAM_SECTORS,
     HARAM_INDUSTRIES,
+    HARAM_TICKERS,
 )
 
 
@@ -41,6 +42,43 @@ class TestBusinessActivity:
         info = {"sector": "Industrials", "industry": "Aerospace & Defense"}
         result = screen_business_activity(info)
         assert result["pass"] is False
+
+    def test_brewers_industry_fails(self):
+        info = {"sector": "Consumer Defensive", "industry": "Beverages - Brewers"}
+        result = screen_business_activity(info)
+        assert result["pass"] is False
+
+    def test_wineries_distilleries_fails(self):
+        info = {"sector": "Consumer Defensive", "industry": "Beverages - Wineries & Distilleries"}
+        result = screen_business_activity(info)
+        assert result["pass"] is False
+
+    def test_resorts_casinos_fails(self):
+        info = {"sector": "Consumer Cyclical", "industry": "Resorts & Casinos"}
+        result = screen_business_activity(info)
+        assert result["pass"] is False
+
+    def test_curated_ticker_nflx_fails(self):
+        info = {"sector": "Communication Services", "industry": "Entertainment"}
+        result = screen_business_activity(info, ticker="NFLX")
+        assert result["pass"] is False
+        assert "explicit" in result["reason"].lower() or "content" in result["reason"].lower()
+
+    def test_curated_ticker_hon_fails(self):
+        info = {"sector": "Industrials", "industry": "Conglomerates"}
+        result = screen_business_activity(info, ticker="HON")
+        assert result["pass"] is False
+        assert "defense" in result["reason"].lower()
+
+    def test_curated_ticker_case_insensitive(self):
+        info = {"sector": "Communication Services", "industry": "Entertainment"}
+        result = screen_business_activity(info, ticker="nflx")
+        assert result["pass"] is False
+
+    def test_non_curated_ticker_passes(self):
+        info = {"sector": "Technology", "industry": "Consumer Electronics"}
+        result = screen_business_activity(info, ticker="AAPL")
+        assert result["pass"] is True
 
     def test_missing_sector_passes(self):
         info = {}
