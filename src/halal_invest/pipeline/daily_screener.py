@@ -93,7 +93,11 @@ def run_pipeline():
     # Step 4: Generate PDF
     print(f"\n[4/5] Generating PDF report...")
     try:
-        pdf_path = generate_report(full_results)
+        pdf_path = generate_report(
+            full_results,
+            total_screened=total_screened,
+            total_failed=total_failed,
+        )
         print(f"  PDF saved to: {pdf_path}")
     except Exception as e:
         print(f"ERROR: Failed to generate PDF: {e}")

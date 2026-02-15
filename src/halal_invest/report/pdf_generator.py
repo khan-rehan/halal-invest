@@ -339,6 +339,9 @@ class HalalReportPDF(FPDF):
 def generate_report(
     screening_results: list[dict],
     output_path: str | Path | None = None,
+    total_screened: int | None = None,
+    total_failed: int | None = None,
+    total_error: int | None = None,
 ) -> Path:
     """Generate a PDF report from screening results.
 
@@ -353,6 +356,12 @@ def generate_report(
 
         output_path: Optional output file path. Defaults to
             ``~/halal-invest-reports/halal_report_YYYY-MM-DD.pdf``.
+        total_screened: Override for total stocks screened count.
+            If None, uses len(screening_results).
+        total_failed: Override for failed count.
+            If None, counts FAIL statuses in screening_results.
+        total_error: Override for error count.
+            If None, counts ERROR statuses in screening_results.
 
     Returns:
         The Path to the generated PDF file.
@@ -363,17 +372,20 @@ def generate_report(
         if r.get("screening", {}).get("halal_status") in ("PASS", "DOUBTFUL")
     ]
 
-    # Compute totals
-    total_screened = len(screening_results)
+    # Compute totals — use overrides if provided
     total_passed = len(passing_results)
-    total_failed = sum(
-        1 for r in screening_results
-        if r.get("screening", {}).get("halal_status") == "FAIL"
-    )
-    total_error = sum(
-        1 for r in screening_results
-        if r.get("screening", {}).get("halal_status") == "ERROR"
-    )
+    if total_screened is None:
+        total_screened = len(screening_results)
+    if total_failed is None:
+        total_failed = sum(
+            1 for r in screening_results
+            if r.get("screening", {}).get("halal_status") == "FAIL"
+        )
+    if total_error is None:
+        total_error = sum(
+            1 for r in screening_results
+            if r.get("screening", {}).get("halal_status") == "ERROR"
+        )
 
     # Compute sector breakdown from passing stocks
     sector_breakdown: dict[str, int] = {}
